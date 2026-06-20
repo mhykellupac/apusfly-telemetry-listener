@@ -1,93 +1,54 @@
-import os
-import json
 import paho.mqtt.client as mqtt
+import json
 import psycopg2
+from datetime import datetime
 
-# =======================
-# SUPABASE CONNECTION
-# =======================
-
+# DB connection
 conn = psycopg2.connect(
-    host=os.getenv("SUPABASE_HOST"),
-    database=os.getenv("SUPABASE_DB"),
-    user=os.getenv("SUPABASE_USER"),
-    password=os.getenv("SUPABASE_PASSWORD"),
-    port=os.getenv("SUPABASE_PORT"),
-    sslmode="require"
+    host="YOUR_HOST",
+    database="YOUR_DB",
+    user="YOUR_USER",
+    password="YOUR_PASS"
 )
-
-cursor = conn.cursor()
-
-print("✅ Connected to Supabase")
-
-# =======================
-# MQTT CALLBACKS
-# =======================
-
-def on_connect(client, userdata, flags, rc):
-    print("✅ MQTT Connected with code:", rc)
-
-    client.subscribe("apusfly/drone/telemetry")
-    print("📡 Subscribed to apusfly/drone/telemetry")
-
+cur = conn.cursor()
 
 def on_message(client, userdata, msg):
     try:
-        payload = msg.payload.decode()
+        data = json.loads(msg.payload.decode())
 
-        print("📨 Received:", payload)
+        print("RAW DATA:", data)
 
-        data = json.loads(payload)
+        drone_id = data.get("device_sn") or data.get("drone_id")
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        alt = data.get("altitude")
+        battery = data.get("battery")
+        speed = data.get("speed")
+        timestamp = datetime.utcnow()
 
-        sql = """
-        INSERT INTO public."ApusFly_DroneTelemetryData"
-        (
-            drone_id,
-            latitude,
-            longitude,
-            altitude,
-            speed,
-            battery,
-            current_waypoint,
-            total_waypoints,
-            status
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """
+        if not drone_id:
+            print("Skipping invalid packet")
+            return
 
-        values = (
-            data.get("drone_id"),
-            data.get("lat"),
-            data.get("lng"),
-            data.get("altitude"),
-            data.get("speed"),
-            data.get("battery"),
-            data.get("current_waypoint"),
-            data.get("total_waypoints"),
-            data.get("status", "flying")
-        )
+        cur.execute("""
+            INSERT INTO drone_telemetry
+            (drone_id, latitude, longitude, altitude, battery, speed, timestamp)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+        """, (drone_id, lat, lon, alt, battery, speed, timestamp))
 
-        cursor.execute(sql, values)
         conn.commit()
-
-        print("💾 Saved to Supabase ✔")
+        print("Saved:", drone_id)
 
     except Exception as e:
-        print("❌ Error:", e)
+        print("Error:", e)
 
-# =======================
-# MQTT SETUP
-# =======================
 
 client = mqtt.Client()
-
-client.on_connect = on_connect
 client.on_message = on_message
 
-print("🔌 Connecting to HiveMQ...")
+client.connect("YOUR_DJI_MQTT_HOST", 1883, 60)
 
-client.connect("broker.hivemq.com", 1883, 60)
-
-print("🚀 Listening for drone telemetry...")
+# IMPORTANT: subscribe to ALL topics first (no Thing Model filtering)
+client.subscribe("#")
 
 client.loop_forever()
