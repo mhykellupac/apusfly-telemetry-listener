@@ -7,10 +7,10 @@ from datetime import datetime
 # DATABASE CONNECTION
 # =========================
 conn = psycopg2.connect(
-    host="YOUR_HOST",
-    database="YOUR_DB",
-    user="YOUR_USER",
-    password="YOUR_PASS"
+    host="aws-1-ap-northeast-1.pooler.supabase.com",
+    database="postgres",
+    user="postgres.szpwfjvqgdbjkupfjnhp",
+    password="09765563303"
 )
 cur = conn.cursor()
 
