@@ -1,9 +1,11 @@
 import paho.mqtt.client as mqtt
-import json
 import psycopg2
+import json
 from datetime import datetime
 
-# DB connection
+# =========================
+# DATABASE CONNECTION
+# =========================
 conn = psycopg2.connect(
     host="YOUR_HOST",
     database="YOUR_DB",
@@ -12,43 +14,70 @@ conn = psycopg2.connect(
 )
 cur = conn.cursor()
 
+# =========================
+# MQTT MESSAGE HANDLER
+# =========================
 def on_message(client, userdata, msg):
     try:
         data = json.loads(msg.payload.decode())
 
-        print("RAW DATA:", data)
+        print("DJI RAW:", data)
 
+        # =========================
+        # EXTRACT FIELDS
+        # =========================
         drone_id = data.get("device_sn") or data.get("drone_id")
-        lat = data.get("latitude")
-        lon = data.get("longitude")
-        alt = data.get("altitude")
-        battery = data.get("battery")
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        altitude = data.get("altitude")
         speed = data.get("speed")
-        timestamp = datetime.utcnow()
+        battery = data.get("battery")
+        current_waypoint = data.get("current_waypoint")
+        total_waypoints = data.get("total_waypoints")
+        status = data.get("status", "active")
 
         if not drone_id:
-            print("Skipping invalid packet")
+            print("❌ Missing drone_id, skipping")
             return
 
+        # =========================
+        # INSERT INTO YOUR TABLE
+        # =========================
         cur.execute("""
-            INSERT INTO drone_telemetry
-            (drone_id, latitude, longitude, altitude, battery, speed, timestamp)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
-        """, (drone_id, lat, lon, alt, battery, speed, timestamp))
+            INSERT INTO public."ApusFly_DroneTelemetryData"
+            (drone_id, latitude, longitude, altitude, speed,
+             battery, current_waypoint, total_waypoints, status, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+        """, (
+            drone_id,
+            latitude,
+            longitude,
+            altitude,
+            speed,
+            battery,
+            current_waypoint,
+            total_waypoints,
+            status
+        ))
 
         conn.commit()
-        print("Saved:", drone_id)
+
+        print(f"✅ Saved telemetry for {drone_id}")
 
     except Exception as e:
-        print("Error:", e)
+        print("❌ Error:", e)
 
 
+# =========================
+# MQTT SETUP
+# =========================
 client = mqtt.Client()
 client.on_message = on_message
 
-client.connect("YOUR_DJI_MQTT_HOST", 1883, 60)
+client.connect("YOUR_MQTT_HOST", 1883, 60)
 
-# IMPORTANT: subscribe to ALL topics first (no Thing Model filtering)
+# IMPORTANT: subscribe to all topics (no Thing Model filtering)
 client.subscribe("#")
 
+print("🚁 Listening for DJI telemetry...")
 client.loop_forever()
